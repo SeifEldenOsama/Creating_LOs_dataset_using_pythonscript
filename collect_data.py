@@ -1,13 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-Converted from Jupyter Notebook: notebook.ipynb
-Conversion Date: 2025-11-15T15:16:14.847Z
-"""
-
-from google.colab import files
-files.upload()
-
 print("Installing all required libraries...")
 
 !pip install google-generativeai -q
@@ -328,7 +318,7 @@ try:
                     append_to_csv(data_point, output_filename)
                     processed_topics.add(search_query)
                     new_data_this_session += 1
-                    print(f"    --------------------------------  SUCCESS: Checkpoint saved for query: {search_query}")
+                    print(f"SUCCESS: Checkpoint saved for query: {search_query}")
                     got_one_for_this_topic = True
 
 
