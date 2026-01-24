@@ -1,44 +1,32 @@
-print("Installing all required libraries...")
-
-!pip install google-generativeai -q
-!pip install google-api-python-client -q
-!pip install beautifulsoup4| -q
-!pip install requests -q
-!pip install pandas -q
-!pip install transformers peft trl bitsandbytes accelerate datasets -U -q
-
-print("All libraries installed.")
-
 import os
 import json
+import time
+import random
+import logging
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 from googleapiclient.discovery import build
 import google.generativeai as genai
-import time
 
-# Key for Google Search
-os.environ["GOOGLE_API_KEY"] = ""
-# ID for Google Search
-os.environ["GOOGLE_CSE_ID"] = ""
-# Key for Gemini "Teacher" Model
-os.environ["GEMINI_API_KEY"] = ""
-# --------------------------------
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("dataset_generation.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
-if "YOUR_GOOGLE_CLOUD_API_KEY_HERE" in os.environ.get("GOOGLE_API_KEY", "") or \
-   "YOUR_GOOGLE_AI_STUDIO_KEY_HERE" in os.environ.get("GEMINI_API_KEY", ""):
-    print("ERROR: Please paste your API keys in Cell 2 before running.")
-else:
-    print("API keys found.")
-    try:
-        google_search_service = build("customsearch", "v1", developerKey=os.environ["GOOGLE_API_KEY"])
-        print("Google Search client initialized.")
-
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        print("Gemini client initialized successfully.")
-    except Exception as e:
-        print(f"Error initializing API clients. Check your keys. Error: {e}")
+# --- Configuration ---
+# It's better to set these as environment variables
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+MODEL_TO_USE = "models/gemini-1.5-flash"
+OUTPUT_FILENAME = "dynamic_LO_dataset.csv"
 
 TOPIC_BANK = {
     "Science & Nature": [
@@ -72,6 +60,7 @@ TOPIC_BANK = {
         "The Importance of Brushing Teeth", "Stranger Danger"
     ]
 }
+
 QUERY_TEMPLATES = [
     "comprehensive guide to {}",
     "explain {} like I'm a beginner",
@@ -85,248 +74,165 @@ QUERY_TEMPLATES = [
     "academic paper on {}"
 ]
 
-print("**Children's** Topic Bank and Query Templates are loaded.")
+SYSTEM_PROMPT = """
+You are an expert instructional designer. Your task is to read the provided educational text
+and generate 5-15 high-quality learning objectives for it based on the text length. The objectives must clearly
+state what a learner should be able to do after reading the text (e.g., "Describe the process...",
+"Analyze the relationship...", "Define the term...").
 
-def search_google(topic):
-    """
-    Searches Google for a topic and returns a list of URLs.
-    """
-    print(f"  > Searching Google for: '{topic}'")
+You MUST provide the output as a single, valid JSON object with two keys:
+1. "educational_text": The full, original text that was provided to you.
+2. "generated_learning_objectives": A list of strings, where each string is a
+   learning objective you created.
+
+Do not include any text, backticks, or explanations outside of the JSON object.
+"""
+
+def initialize_clients():
+    """Initializes Google Search and Gemini API clients."""
+    if not GOOGLE_API_KEY or not GEMINI_API_KEY or not GOOGLE_CSE_ID:
+        logger.error("API keys or CSE ID not found. Please set GOOGLE_API_KEY, GOOGLE_CSE_ID, and GEMINI_API_KEY environment variables.")
+        return None, None
+
     try:
-        result = google_search_service.cse().list(
+        search_service = build("customsearch", "v1", developerKey=GOOGLE_API_KEY)
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel(MODEL_TO_USE)
+        logger.info("API clients initialized successfully.")
+        return search_service, model
+    except Exception as e:
+        logger.error(f"Error initializing API clients: {e}")
+        return None, None
+
+def search_google(search_service, topic):
+    """Searches Google for a topic and returns a list of URLs."""
+    logger.info(f"Searching Google for: '{topic}'")
+    try:
+        result = search_service.cse().list(
             q=topic,
-            cx=os.environ["GOOGLE_CSE_ID"],
+            cx=GOOGLE_CSE_ID,
             num=5
         ).execute()
-
         urls = [item['link'] for item in result.get('items', [])]
-        print(f"    - Found {len(urls)} URLs.")
+        logger.info(f"Found {len(urls)} URLs.")
         return urls
     except Exception as e:
-        print(f"    - Error searching Google: {e}")
+        logger.error(f"Error searching Google: {e}")
         return []
 
 def scrape_and_clean_text(url, min_words=500, max_words=4000):
-    """
-    Scrapes a URL, cleans the text.
-    Skips if < min_words.
-    Truncates if > max_words.
-    """
-    print(f"    - Attempting to scrape: {url}")
+    """Scrapes a URL and cleans the text content."""
+    logger.info(f"Attempting to scrape: {url}")
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
+        }
         response = requests.get(url, headers=headers, timeout=10)
-
         if response.status_code != 200:
-            print(f"    - Failed to fetch URL (Status {response.status_code})")
+            logger.warning(f"Failed to fetch URL (Status {response.status_code})")
             return None
 
         soup = BeautifulSoup(response.text, 'html.parser')
-
         for element in soup(["script", "style", "nav", "footer", "header", "aside", "form"]):
             element.decompose()
 
         text_chunks = [p.get_text() for p in soup.find_all('p')]
         full_text = " ".join(text_chunks).strip()
-
         cleaned_text = " ".join(full_text.split())
         words = cleaned_text.split()
         word_count = len(words)
 
         if word_count < min_words:
-            print(f"    - SKIPPED: Only found {word_count} words. (Min: {min_words})")
+            logger.info(f"Skipped: Only found {word_count} words. (Min: {min_words})")
             return None
 
         if word_count > max_words:
-            print(f"    - TRUNCATING: Found {word_count} words, limiting to {max_words}.")
-            final_text = " ".join(words[:max_words])
-            final_word_count = max_words
-        else:
-            final_text = cleaned_text
-            final_word_count = word_count
+            logger.info(f"Truncating: Found {word_count} words, limiting to {max_words}.")
+            cleaned_text = " ".join(words[:max_words])
 
-        print(f"    - SUCCESS: Scraped {final_word_count} words.")
-        return final_text
-
+        logger.info(f"Successfully scraped {len(cleaned_text.split())} words.")
+        return cleaned_text
     except Exception as e:
-        print(f"    - Error scraping: {e}")
+        logger.error(f"Error scraping {url}: {e}")
         return None
 
-import google.generativeai as genai
-
-print("Listing all available Gemini models that support 'generateContent'...\n")
-
-found_model_name = None
-
-try:
-    for m in genai.list_models():
-      if 'generateContent' in m.supported_generation_methods:
-          print(f"Found model: {m.name}")
-
-          if "1.5-flash" in m.name:
-              found_model_name = m.name
-          elif "gemini-pro" in m.name and not found_model_name:
-              found_model_name = m.name
-
-    if found_model_name:
-        print(f"\n---")
-        print(f"Recommended model to use: {found_model_name}")
-        print(f"---")
-    else:
-        print("\nCould not find a suitable model. Please check your API key and permissions.")
-
-except Exception as e:
-    print(f"An error occurred while listing models: {e}")
-    print("Please make sure your GEMINI_API_KEY in Cell 2 is correct and active.")
-
-MODEL_TO_USE = "models/gemini-flash-latest"
-
-if "PASTE_RECOMMENDED_MODEL_NAME_HERE" in MODEL_TO_USE:
-    print("ERROR: Please update the 'MODEL_TO_USE' variable in this cell with a model name from the cell above.")
-else:
-    print(f"Using model: {MODEL_TO_USE}")
-
-try:
-    gemini_model = genai.GenerativeModel(MODEL_TO_USE)
-
-    SYSTEM_PROMPT = """
-    You are an expert instructional designer. Your task is to read the provided educational text
-    and generate 5-15 high-quality learning objectives for it based on the text length. The objectives must clearly
-    state what a learner should be able to do after reading the text (e.g., "Describe the process...",
-    "Analyze the relationship...", "Define the term...").
-
-    You MUST provide the output as a single, valid JSON object with two keys:
-    1. "educational_text": The full, original text that was provided to you.
-    2. "generated_learning_objectives": A list of strings, where each string is a
-       learning objective you created.
-
-    Do not include any text, backticks, or explanations outside of the JSON object.
-    """
-
-    generation_config = genai.GenerationConfig(response_mime_type="application/json")
-
-    def generate_synthetic_data(text_block):
-        """
-        Calls the Gemini API to generate learning objectives for a text.
-        """
-        print(f"    - Sending {len(text_block.split())} words to 'Teacher' (Gemini)...")
-        full_prompt = f"{SYSTEM_PROMPT}\n\n{text_block}"
-
-        try:
-            response = gemini_model.generate_content(
-                full_prompt,
-                generation_config=generation_config
-            )
-
-            result_json = json.loads(response.text)
-            print(f"    - SUCCESS: 'Teacher' generated {len(result_json['generated_learning_objectives'])} objectives.")
-            return result_json
-
-        except Exception as e:
-            print(f"    - Error generating objectives with Gemini: {e}")
-            return None
-
-except Exception as e:
-    print(f"Error initializing model '{MODEL_TO_USE}'. Did you paste the name correctly?")
-    print(f"Full error: {e}")
-
-import pandas as pd
-import os
-
-output_filename = "dynamic_LO_dataset.csv"
+def generate_learning_objectives(model, text_block):
+    """Calls the Gemini API to generate learning objectives for a text."""
+    logger.info(f"Sending text to Gemini for LO generation...")
+    full_prompt = f"{SYSTEM_PROMPT}\n\n{text_block}"
+    try:
+        generation_config = genai.GenerationConfig(response_mime_type="application/json")
+        response = model.generate_content(
+            full_prompt,
+            generation_config=generation_config
+        )
+        result_json = json.loads(response.text)
+        logger.info(f"Successfully generated {len(result_json['generated_learning_objectives'])} objectives.")
+        return result_json
+    except Exception as e:
+        logger.error(f"Error generating objectives with Gemini: {e}")
+        return None
 
 def load_processed_topics(filename):
-    """
-    Checks if the CSV exists and returns a set of all
-    topics that have already been processed.
-    """
+    """Loads already processed topics from the CSV file."""
     if not os.path.exists(filename):
         return set()
-
     try:
         df = pd.read_csv(filename)
-        if 'topic' in df.columns:
-            return set(df['topic'].unique())
-        else:
-            return set()
-    except pd.errors.EmptyDataError:
-        return set()
+        return set(df['topic'].unique()) if 'topic' in df.columns else set()
     except Exception as e:
-        print(f"Error loading processed topics: {e}")
+        logger.error(f"Error loading processed topics: {e}")
         return set()
 
-def append_to_csv(data_point, filename):
-    """
-Appends a single new data point (as a dictionary)
-    to the CSV file. This is our "checkpoint."
-    """
+def save_data_point(data_point, filename):
+    """Appends a single data point to the CSV file."""
     df_new = pd.DataFrame([data_point])
-
-    file_exists = os.path.exists(filename)
-
     try:
-        if not file_exists:
-            df_new.to_csv(filename, index=False, encoding='utf-8')
-        else:
-            df_new.to_csv(filename, mode='a', header=False, index=False, encoding='utf-8')
+        file_exists = os.path.exists(filename)
+        df_new.to_csv(filename, mode='a' if file_exists else 'w', 
+                      header=not file_exists, index=False, encoding='utf-8')
     except Exception as e:
-        print(f"    -  Error saving checkpoint: {e}")
+        logger.error(f"Error saving data point: {e}")
 
-print("Checkpoint helper functions are ready.")
+def main():
+    search_service, gemini_model = initialize_clients()
+    if not search_service or not gemini_model:
+        return
 
-import random
-print("--- STARTING DYNAMIC DATASET GENERATION ---")
+    processed_topics = load_processed_topics(OUTPUT_FILENAME)
+    logger.info(f"Loaded {len(processed_topics)} previously processed topics.")
 
-processed_topics = load_processed_topics(output_filename)
-print(f"Loaded {len(processed_topics)} previously processed topics from checkpoint file.")
+    new_count = 0
+    try:
+        while True:
+            category = random.choice(list(TOPIC_BANK.keys()))
+            sub_topic = random.choice(TOPIC_BANK[category])
+            template = random.choice(QUERY_TEMPLATES)
+            query = template.format(sub_topic)
 
-new_data_this_session = 0
+            if query in processed_topics:
+                continue
 
-try:
-    while True:
-        random_category_key = random.choice(list(TOPIC_BANK.keys()))
-        random_sub_topic = random.choice(TOPIC_BANK[random_category_key])
-        random_template = random.choice(QUERY_TEMPLATES)
+            logger.info(f"Processing query: {query}")
+            urls = search_google(search_service, query)
+            
+            for url in urls:
+                text = scrape_and_clean_text(url)
+                if text:
+                    data_point = generate_learning_objectives(gemini_model, text)
+                    if data_point:
+                        data_point['topic'] = query
+                        save_data_point(data_point, OUTPUT_FILENAME)
+                        processed_topics.add(query)
+                        new_count += 1
+                        logger.info(f"Data point saved for query: {query}")
+                        break # Move to next query after one successful scrape
+            
+            time.sleep(1) # Respectful delay
+    except KeyboardInterrupt:
+        logger.info("Process interrupted by user.")
+    finally:
+        logger.info(f"Session complete. Generated {new_count} new data points.")
 
-        search_query = random_template.format(random_sub_topic)
-
-        if search_query in processed_topics:
-            print(f"\nSkipping already processed query: {search_query}")
-            continue
-
-        print(f"\nProcessing new query: {search_query}")
-
-        urls = search_google(search_query)
-        if not urls:
-            continue
-
-        got_one_for_this_topic = False
-
-        for url in urls:
-            if got_one_for_this_topic:
-                break
-
-
-            text = scrape_and_clean_text(url, min_words=500)
-
-            if text:
-
-                data_point = generate_synthetic_data(text)
-
-                if data_point:
-                    data_point['topic'] = search_query
-                    append_to_csv(data_point, output_filename)
-                    processed_topics.add(search_query)
-                    new_data_this_session += 1
-                    print(f"SUCCESS: Checkpoint saved for query: {search_query}")
-                    got_one_for_this_topic = True
-
-
-except KeyboardInterrupt:
-    print("\n\n---  SCRIPT STOPPED MANUALLY ---")
-    print("Loop interrupted by user. Progress has been saved.")
-
-finally:
-    print("\n--- Generation Complete ---")
-    print(f"Successfully generated {new_data_this_session} new data points in this session.")
-    print(f"Total topics processed in CSV: {len(processed_topics)}")
+if __name__ == "__main__":
+    main()

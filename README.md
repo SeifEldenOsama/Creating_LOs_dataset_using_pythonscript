@@ -1,71 +1,92 @@
 # Automated Learning Objectives (LOs) Dataset Creation
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Generative AI](https://img.shields.io/badge/AI-Gemini-orange.svg)](https://ai.google.dev/)
 
-## 1. Project Overview
+A professional Python-based framework for automating the creation of high-quality educational datasets. This tool dynamically generates **Learning Objectives (LOs)** from web-sourced educational content using Google Search and Gemini AI.
 
-This repository presents a powerful Python script designed to **automate the creation of high-quality educational datasets**. The core function is to dynamically generate **Learning Objectives (LOs)** from educational text content sourced from the web. This process is crucial for developing AI models focused on educational technology (EdTech) and instructional design.
+## 🌟 Project Overview
 
-The script combines web scraping techniques with advanced generative AI capabilities, specifically leveraging the **Google Gemini model**, to transform raw text into structured, instructional design-compliant learning objectives.
+In the rapidly evolving field of EdTech, high-quality structured data is essential for training specialized AI models. This repository provides a robust pipeline to:
+1.  **Discover** relevant educational content across diverse subjects.
+2.  **Extract** and clean text from authoritative web sources.
+3.  **Synthesize** measurable, instructional-design-compliant learning objectives using state-of-the-art LLMs.
 
-## 2. Key Features
+The resulting dataset is ideal for fine-tuning models like Llama, Mistral, or Gemini for educational applications.
 
-The automated dataset generation process is built around several key features:
+## 🚀 Key Features
 
-| Feature | Description | Technologies Used |
-| :--- | :--- | :--- |
-| **Dynamic Topic Selection** | The script uses a predefined `TOPIC_BANK` covering subjects like Science, Math, History, Art, and Technology to ensure diverse and relevant educational content is targeted. | Python `random` module |
-| **Intelligent Web Search** | It utilizes the Google Custom Search API to find relevant educational articles and resources for the selected topics, ensuring the data is current and authoritative. | Google API Client |
-| **Robust Web Scraping** | The script employs `BeautifulSoup` to scrape and clean text from the identified URLs, removing boilerplate content (headers, footers, navigation) to isolate the core educational text. | `BeautifulSoup4`, `requests` |
-| **AI-Powered LO Generation** | The cleaned text is passed to the Gemini AI model, which acts as an "expert instructional designer" to generate 5-15 high-quality, measurable learning objectives in a structured JSON format. | Google Generative AI SDK (Gemini) |
-| **Data Management & Checkpointing** | All generated data (original text and LOs) is saved to a CSV file (`dynamic_LO_dataset.csv`). A checkpoint system is implemented to track processed topics, allowing the script to be stopped and resumed without duplicating work. | `pandas`, Python `os` |
+| Feature | Description |
+| :--- | :--- |
+| **Dynamic Topic Discovery** | Utilizes a multi-disciplinary `TOPIC_BANK` (Science, Math, History, Art, Technology) for broad coverage. |
+| **Intelligent Search** | Integrates Google Custom Search API for high-relevance source discovery. |
+| **Automated Scraping** | Clean, boilerplate-free text extraction using `BeautifulSoup4`. |
+| **AI Synthesis** | Leverages **Google Gemini 1.5 Flash** for expert-level instructional design output. |
+| **Fault-Tolerant** | Built-in checkpointing and logging to ensure continuous progress without data loss. |
 
-## 3. Workflow and Methodology
-
-The `collect_data.py` script executes a continuous loop to build the dataset:
-
-1.  **Topic Selection:** A random topic and a query template are selected from the predefined banks.
-2.  **Search Query Generation:** A search query is dynamically created (e.g., "comprehensive guide to [sub-topic]").
-3.  **Search Execution:** The Google Custom Search API is queried to retrieve a list of relevant URLs.
-4.  **Content Scraping:** Each URL is visited, and the text content is scraped, cleaned, and filtered to ensure it meets minimum and maximum word count requirements (500 to 4000 words).
-5.  **AI Processing:** The cleaned text is sent to the Gemini model with a detailed system prompt instructing it to generate learning objectives based on the text.
-6.  **Data Storage:** The resulting JSON object, containing the original text and the generated learning objectives, is parsed and appended as a new row to the `dynamic_LO_dataset.csv` file.
-
-## 4. Installation and Setup
+## 🛠️ Installation
 
 ### Prerequisites
-*   Python 3.x
-*   Access to Google Custom Search API and a CSE ID.
-*   Access to Google Gemini API.
+- Python 3.8 or higher
+- Google Cloud Project with [Custom Search API](https://developers.google.com/custom-search/v1/overview) enabled
+- [Google AI Studio](https://aistudio.google.com/) API Key for Gemini
 
 ### Setup
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/SeifEldenOsama/Creating_LOs_dataset_using_pythonscript.git
-    cd Creating_LOs_dataset_using_pythonscript
-    ```
-2.  Install the required Python libraries:
-    ```bash
-    pip install google-generativeai google-api-python-client beautifulsoup4 requests pandas
-    ```
-3.  **API Key Configuration:** The script requires your API keys to be set as environment variables or directly in the script's configuration block:
-    *   `GOOGLE_API_KEY` (for Google Custom Search)
-    *   `GOOGLE_CSE_ID` (for Google Custom Search)
-    *   `GEMINI_API_KEY` (for Gemini Model)
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/SeifEldenOsama/Creating_LOs_dataset_using_pythonscript.git
+   cd Creating_LOs_dataset_using_pythonscript
+   ```
 
-## 5. Usage
+2. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-To start the automated dataset generation process, simply run the main script:
+3. **Configure Environment Variables:**
+   Set your API keys as environment variables:
+   ```bash
+   export GOOGLE_API_KEY="your_google_api_key"
+   export GOOGLE_CSE_ID="your_cse_id"
+   export GEMINI_API_KEY="your_gemini_api_key"
+   ```
 
+## 📖 Usage
+
+Run the main script to start the automated collection process:
 ```bash
 python collect_data.py
 ```
 
-The script will run continuously, generating new data points and saving them to `dynamic_LO_dataset.csv` until manually stopped.
+The script will:
+- Randomly select topics and search queries.
+- Scrape and clean content from the web.
+- Generate LOs and save them to `dynamic_LO_dataset.csv`.
+- Log all activities to `dataset_generation.log`.
 
-## 6. Repository Contents
+## 📁 Project Structure
 
-| File/Folder | Description |
-| :--- | :--- |
-| `collect_data.py` | The main Python script containing the entire workflow for data collection and LO generation. |
-| `Building-Child-Friendly-Educational-Datasets.pdf` | A supplementary document likely detailing the theoretical background or methodology for building child-friendly educational datasets. |
-| `dynamic_LO_dataset.csv` | The output file where the generated dataset is stored. |
+```text
+├── collect_data.py          # Main execution script
+├── requirements.txt         # Project dependencies
+├── LICENSE                  # MIT License
+├── README.md                # Project documentation
+├── .gitignore               # Git ignore rules
+└── Building-Child-Friendly-Educational-Datasets.pdf # Theoretical background
+```
+
+## 📝 Dataset Format
+
+The generated `dynamic_LO_dataset.csv` contains the following columns:
+- `topic`: The search query used to find the content.
+- `educational_text`: The raw, cleaned text extracted from the source.
+- `generated_learning_objectives`: A JSON-formatted list of learning objectives.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

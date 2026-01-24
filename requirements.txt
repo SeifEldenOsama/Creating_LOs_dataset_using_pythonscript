@@ -1,0 +1,12 @@
+google-generativeai
+google-api-python-client
+beautifulsoup4
+requests
+pandas
+# Optional for fine-tuning
+transformers
+peft
+trl
+bitsandbytes
+accelerate
+datasets
